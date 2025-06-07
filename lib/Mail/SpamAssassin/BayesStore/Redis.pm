@@ -176,7 +176,7 @@ use Digest::SHA qw(sha1);
 use Mail::SpamAssassin::BayesStore;
 use Mail::SpamAssassin::Logger;
 use Mail::SpamAssassin::Timeout;
-use Mail::SpamAssassin::Util qw(untaint_var);
+use Mail::SpamAssassin::Util qw(compile_regexp untaint_var);
 use Mail::SpamAssassin::Util::TinyRedis;
 
 our $VERSION = 0.10;
@@ -215,7 +215,23 @@ sub new {
   # Initialize default values
   $self->{db_id} = 0;
   $self->{password} = undef;
+
   $self->{key_prefix} = $bconf->{bayes_redis_prefix} || "";
+
+  my $key_prefix_tok_regex = "^$self->{key_prefix}w:";
+  my ($rec, $err) = compile_regexp($key_prefix_tok_regex, 0);
+  if (!$rec) {
+    die "Can't create regex '$key_prefix_tok_regex': $err\n";
+  }
+  $self->{key_prefix_tok_regex} = $rec;
+
+  my $key_prefix_seen_regex = "^$self->{key_prefix}s:";
+  ($rec, $err) = compile_regexp($key_prefix_seen_regex, 0);
+  if (!$rec) {
+    die "Can't create regex '$key_prefix_seen_regex': $err\n";
+  }
+  $self->{key_prefix_seen_regex} = $rec;
+
   $self->{read_servers} = [];
   $self->{write_server} = undef;
   $self->{current_read_server} = 0;  # Index of current read server
@@ -1423,7 +1439,7 @@ sub dump_db_toks {
         my($s,$h) = @$item;
         # Strip key prefix for the token
         my $token = $keys->[$j];
-        $token =~ s/^$self->{key_prefix}w://;
+        $token =~ s/$self->{key_prefix_tok_regex}//;
         push(@tokensdata, [ $token, ($s||0)+0, ($h||0)+0 ])  if $s || $h;
         $j++;
       }
@@ -1455,7 +1471,7 @@ sub dump_db_toks {
       for (my $j = 0; $j < @tokens; $j++) {
         my($s,$h) = split(m{/}, $items[$j], 2);
         my $token = $tokens[$j];
-        $token =~ s/^$self->{key_prefix}w://;
+        $token =~ s/$self->{key_prefix_tok_regex}//;
         push(@tokensdata, [ $token, ($s||0)+0, ($h||0)+0 ])  if $s || $h;
       }
     }
@@ -1518,7 +1534,7 @@ sub backup_database {
       my $itemslist_ref = $r->b_results;
       foreach my $item ( @$itemslist_ref ) {
         my $token = $keys->[$j++];
-        $token =~ s/^$self->{key_prefix}w://;
+        $token =~ s/$self->{key_prefix_tok_regex}//;
         my($s,$h) = @$item;
         printf("t\t%d\t%d\t%s\t%s\n",
                $s||0, $h||0, $atime, unpack("H*", $token))  if $s || $h;
@@ -1549,7 +1565,7 @@ sub backup_database {
 
       for (my $j = 0; $j < @tokens; $j++) {
         my $token = $tokens[$j];
-        $token =~ s/^$self->{key_prefix}w://;
+        $token =~ s/$self->{key_prefix_tok_regex}//;
         my($s,$h) = split(m{/}, $items[$j], 2);
         next if !$s && !$h;
         printf("t\t%d\t%d\t%s\t%s\n", $s||0, $h||0, $atime, unpack("H*", $token));
@@ -1568,7 +1584,7 @@ sub backup_database {
     for (my $i = 0; $i < @$v; $i++) {
       next unless defined $v->[$i];
       my $msgid = $t[$i];
-      $msgid =~ s/^$self->{key_prefix}s://;
+      $msgid =~ s/$self->{key_prefix_seen_regex}//;
       printf("s\t%s\t%s\n", $v->[$i], $msgid);
     }
   }
