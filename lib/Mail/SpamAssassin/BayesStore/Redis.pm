@@ -362,9 +362,9 @@ sub on_connect {
   1;
 }
 
-=head2 connect_read
+=head2 _connect_read
 
-private instance (Boolean) connect_read ()
+private instance (Boolean) _connect_read ()
 
 Description:
 Connects to a Redis read server. Tries each configured read server in turn
@@ -372,7 +372,7 @@ until one succeeds. If all fail, throws an exception.
 
 =cut
 
-sub connect_read {
+sub _connect_read {
   my($self) = @_;
 
   return 1 if $self->{connected_read};
@@ -381,7 +381,7 @@ sub connect_read {
     die "bayes: No Redis read servers configured";
   }
 
-  $self->disconnect_read if $self->{connected_read};
+  $self->_disconnect_read if $self->{connected_read};
   undef $self->{redis_read};  # just in case
 
   # Try each read server in turn, starting from the current one
@@ -436,9 +436,9 @@ sub connect_read {
   die "bayes: Failed to connect to any read server: $error";
 }
 
-=head2 connect_write
+=head2 _connect_write
 
-private instance (Boolean) connect_write ()
+private instance (Boolean) _connect_write ()
 
 Description:
 Connects to the Redis write server. Since there's only one write server,
@@ -446,7 +446,7 @@ throws an exception if the connection fails.
 
 =cut
 
-sub connect_write {
+sub _connect_write {
   my($self) = @_;
 
   return 1 if $self->{connected_write};
@@ -455,7 +455,7 @@ sub connect_write {
     die "bayes: No Redis write server configured";
   }
 
-  $self->disconnect_write if $self->{connected_write};
+  $self->_disconnect_write if $self->{connected_write};
   undef $self->{redis_write};  # just in case
 
   my $err = $self->{timer}->run_and_catch(sub {
@@ -486,16 +486,16 @@ sub connect_write {
   return 1;
 }
 
-=head2 disconnect_read
+=head2 _disconnect_read
 
-private instance () disconnect_read ()
+private instance () _disconnect_read ()
 
 Description:
 Disconnects from the Redis read server.
 
 =cut
 
-sub disconnect_read {
+sub _disconnect_read {
   my($self) = @_;
   local($@, $!);
   if ($self->{connected_read}) {
@@ -506,16 +506,16 @@ sub disconnect_read {
   undef $self->{redis_read};
 }
 
-=head2 disconnect_write
+=head2 _disconnect_write
 
-private instance () disconnect_write ()
+private instance () _disconnect_write ()
 
 Description:
 Disconnects from the Redis write server.
 
 =cut
 
-sub disconnect_write {
+sub _disconnect_write {
   my($self) = @_;
   local($@, $!);
   if ($self->{connected_write}) {
@@ -526,16 +526,16 @@ sub disconnect_write {
   undef $self->{redis_write};
 }
 
-=head2 key
+=head2 _key
 
-private instance (String) key (String $key)
+private instance (String) _key (String $key)
 
 Description:
 Prefixes a key with the configured key prefix for namespacing.
 
 =cut
 
-sub key {
+sub _key {
   my($self, $key) = @_;
   return $self->{key_prefix} . $key;
 }
@@ -675,7 +675,7 @@ sub _open_db_readonly {
 
   # Try to connect to a read server
   eval {
-    $self->connect_read();
+    $self->_connect_read();
   };
   if ($@) {
     warn("bayes: failed to connect to any read server: $@");
@@ -684,7 +684,7 @@ sub _open_db_readonly {
 
   $self->_check_server_info($self->{redis_read});
 
-  $self->{db_version} = $self->{redis_read}->call('GET', $self->key('v:DB_VERSION'));
+  $self->{db_version} = $self->{redis_read}->call('GET', $self->_key('v:DB_VERSION'));
 
   if (!$self->{db_version}) {
     warn("bayes: database not initialized");
@@ -695,7 +695,7 @@ sub _open_db_readonly {
       warn("bayes: bayes db version $self->{db_version} not supported, aborting\n");
       return 0;
     }
-    my $token_format = $self->{redis_read}->call('GET', $self->key('v:TOKEN_FORMAT')) || 0;
+    my $token_format = $self->{redis_read}->call('GET', $self->_key('v:TOKEN_FORMAT')) || 0;
     if ($token_format < 2) {
       warn("bayes: bayes old token format $token_format not supported, ".
            "consider backup/restore or initialize a database\n");
@@ -737,7 +737,7 @@ sub _open_db_writable {
 
   # Try to connect to the write server
   eval {
-    $self->connect_write();
+    $self->_connect_write();
   };
   if ($@) {
     warn("bayes: failed to connect to write server: $@");
@@ -746,15 +746,15 @@ sub _open_db_writable {
 
   $self->_check_server_info($self->{redis_write});
 
-  $self->{db_version} = $self->{redis_write}->call('GET', $self->key('v:DB_VERSION'));
+  $self->{db_version} = $self->{redis_write}->call('GET', $self->_key('v:DB_VERSION'));
 
   if (!$self->{db_version}) {
     $self->{db_version} = $self->DB_VERSION;
     my $ret = $self->{redis_write}->call('MSET',
-                                   $self->key('v:DB_VERSION'), $self->{db_version},
-                                   $self->key('v:NSPAM'), 0,
-                                   $self->key('v:NHAM'), 0,
-                                   $self->key('v:TOKEN_FORMAT'), 2 );
+                                   $self->_key('v:DB_VERSION'), $self->{db_version},
+                                   $self->_key('v:NSPAM'), 0,
+                                   $self->_key('v:NHAM'), 0,
+                                   $self->_key('v:TOKEN_FORMAT'), 2 );
     unless ($ret) {
       warn("bayes: failed to initialize database");
       return 0;
@@ -766,7 +766,7 @@ sub _open_db_writable {
       warn("bayes: bayes db version $self->{db_version} not supported, aborting\n");
       return 0;
     }
-    my $token_format = $self->{redis_write}->call('GET', $self->key('v:TOKEN_FORMAT')) || 0;
+    my $token_format = $self->{redis_write}->call('GET', $self->_key('v:TOKEN_FORMAT')) || 0;
     if ($token_format < 2) {
       warn("bayes: bayes old token format $token_format not supported, ".
            "consider backup/restore or initialize a database\n");
@@ -871,7 +871,7 @@ sub seen_get {
   my($self, $msgid) = @_;
 
   return 0 unless $self->tie_db_readonly();
-  return $self->{redis_read}->call('GET', $self->key("s:$msgid"));
+  return $self->{redis_read}->call('GET', $self->_key("s:$msgid"));
 }
 
 =head2 seen_put
@@ -890,9 +890,9 @@ sub seen_put {
   return 0 unless $self->tie_db_writable();
   my $r = $self->{redis_write};
   if ($self->{expire_seen}) {
-    $r->call('SETEX', $self->key("s:$msgid"), $self->{expire_seen}, $flag);
+    $r->call('SETEX', $self->_key("s:$msgid"), $self->{expire_seen}, $flag);
   } else {
-    $r->call('SET',   $self->key("s:$msgid"), $flag);
+    $r->call('SET',   $self->_key("s:$msgid"), $flag);
   }
 
   return 1;
@@ -911,7 +911,7 @@ sub seen_delete {
   my($self, $msgid) = @_;
 
   return 0 unless $self->tie_db_writable();
-  $self->{redis_write}->call('DEL', $self->key("s:$msgid"));
+  $self->{redis_write}->call('DEL', $self->_key("s:$msgid"));
   return 1;
 }
 
@@ -950,7 +950,7 @@ sub get_storage_variables {
                  OLDEST_TOKEN_AGE DB_VERSION LAST_JOURNAL_SYNC
                  LAST_ATIME_DELTA LAST_EXPIRE_REDUCE NEWEST_TOKEN_AGE
                  TOKEN_FORMAT}  if !@varnames;
-  my $values = $self->{redis_read}->call('MGET', map($self->key('v:'.$_), @varnames));
+  my $values = $self->{redis_read}->call('MGET', map($self->_key('v:'.$_), @varnames));
   return if !$values;
   return map(defined $_ ? $_ : 0, @$values);
 }
@@ -1035,12 +1035,12 @@ sub tok_get_all {
 
   if (! $self->{have_lua} ) {
     for my $token (@_) {
-      $r->b_call('HMGET', $self->key('w:'.$token), 's', 'h');
+      $r->b_call('HMGET', $self->_key('w:'.$token), 's', 'h');
     }
     my $results = $r->b_results;
 
     if (@$results != @_) {
-      $self->disconnect_read;
+      $self->_disconnect_read;
       die sprintf("bayes: tok_get_all got %d entries, expected %d\n",
                   scalar @$results, scalar @_);
     }
@@ -1055,26 +1055,26 @@ sub tok_get_all {
     my $result;
     eval {
       $result = $r->call('EVALSHA', $self->{multi_hmget_script},
-                         scalar @_, map($self->key('w:'.$_), @_), $nonce);
+                         scalar @_, map($self->_key('w:'.$_), @_), $nonce);
       1;
     } or do {  # Lua script probably not cached, define again and re-try
       if ($@ !~ /^NOSCRIPT/) {
-        $self->disconnect_read;
+        $self->_disconnect_read;
         die "bayes: Redis LUA error: $@\n";
       }
       $self->_define_lua_scripts($r);
       $result = $r->call('EVALSHA', $self->{multi_hmget_script},
-                         scalar @_, map($self->key('w:'.$_), @_), $nonce);
+                         scalar @_, map($self->_key('w:'.$_), @_), $nonce);
     };
     my @items = split(' ', $result);
     my $r_nonce = pop(@items);
     if ($r_nonce ne $nonce) {
       # redis protocol error?
-      $self->disconnect_read;
+      $self->_disconnect_read;
       die sprintf("bayes: tok_get_all nonce mismatch, expected %s, got %s\n",
                   $nonce, defined $r_nonce ? $r_nonce : 'UNDEF');
     } elsif (@items != @_) {
-      $self->disconnect_read;
+      $self->_disconnect_read;
       die sprintf("bayes: tok_get_all got %d entries, expected %d\n",
                   scalar @items, scalar @_);
     } else {
@@ -1138,7 +1138,7 @@ sub multi_tok_count_change {
 
   if ($dspam > 0 || $dham > 0) {  # learning
     while (my($token,$v) = each(%$tokens)) {
-      my $key = $self->key('w:'.$token);
+      my $key = $self->_key('w:'.$token);
       $r->b_call('HINCRBY', $key, 's', int $dspam) if $dspam > 0;
       $r->b_call('HINCRBY', $key, 'h', int $dham)  if $dham  > 0;
       $r->b_call('EXPIRE',  $key, $ttl)  if $ttl;
@@ -1148,7 +1148,7 @@ sub multi_tok_count_change {
 
   if ($dspam < 0 || $dham < 0) {  # unlearning - rare, not as efficient
     while (my($token,$v) = each(%$tokens)) {
-      my $key = $self->key('w:'.$token);
+      my $key = $self->_key('w:'.$token);
       if ($dspam < 0) {
         my $result = $r->call('HINCRBY', $key, 's', int $dspam);
         if (!$result || $result <= 0) {
@@ -1209,17 +1209,17 @@ sub nspam_nham_change {
   my $r = $self->{redis_write};
 
   my $err = $self->{timer}->run_and_catch(sub {
-    $r->b_call('INCRBY', $self->key("v:NSPAM"), $ds) if $ds;
-    $r->b_call('INCRBY', $self->key("v:NHAM"),  $dh) if $dh;
+    $r->b_call('INCRBY', $self->_key("v:NSPAM"), $ds) if $ds;
+    $r->b_call('INCRBY', $self->_key("v:NHAM"),  $dh) if $dh;
     $r->b_results;  # collect response, ignoring results
   });
 
   if ($self->{timer}->timed_out()) {
-    $self->disconnect_write;
+    $self->_disconnect_write;
     die("bayes: Redis connection timed out!");
   }
   elsif ($err) {
-    $self->disconnect_write;
+    $self->_disconnect_write;
     die("bayes: failed to increment nspam $ds nham $dh: $err");
   }
 
@@ -1277,7 +1277,7 @@ sub tok_touch_all {
   # CPAN module the batched case would be worse by about 33% on the average.
 
   # We just refresh TTL on all
-  $r->b_call('EXPIRE', $self->key('w:'.$_), $ttl) for @$tokens;
+  $r->b_call('EXPIRE', $self->_key('w:'.$_), $ttl) for @$tokens;
   $r->b_results;  # collect response, ignoring results
 
   return 1;
@@ -1355,7 +1355,7 @@ sub clear_database {
   # We need to get all keys with our prefix and delete them
   my $r = $self->{redis_write};
 
-  my $keys = $r->call('KEYS', $self->key('*'));
+  my $keys = $r->call('KEYS', $self->_key('*'));
 
   if ($keys && @$keys) {
     dbg("bayes: clearing %d keys from database", scalar @$keys);
@@ -1371,10 +1371,10 @@ sub clear_database {
   # Initialize the database
   $self->{db_version} = $self->DB_VERSION;
   my $ret = $r->call('MSET',
-                     $self->key('v:DB_VERSION'), $self->{db_version},
-                     $self->key('v:NSPAM'), 0,
-                     $self->key('v:NHAM'), 0,
-                     $self->key('v:TOKEN_FORMAT'), 2 );
+                     $self->_key('v:DB_VERSION'), $self->{db_version},
+                     $self->_key('v:NSPAM'), 0,
+                     $self->_key('v:NHAM'), 0,
+                     $self->_key('v:TOKEN_FORMAT'), 2 );
   unless ($ret) {
     warn("bayes: failed to initialize database");
     return 0;
@@ -1404,7 +1404,7 @@ sub dump_db_toks {
 
   # let's get past this terrible command as fast as possible
   # (ignoring $regex which makes no sense with SHA digests)
-  my $keys = $r->call('KEYS', $self->key('w:*'));
+  my $keys = $r->call('KEYS', $self->_key('w:*'));
   dbg("bayes: fetched %d token keys", scalar @$keys);
 
   # process tokens in chunks of 1000
@@ -1437,16 +1437,16 @@ sub dump_db_toks {
       my @items = split(' ', $result);
       my $r_nonce = pop(@items);
       if (!defined $r_nonce) {
-        $self->disconnect_read;
+        $self->_disconnect_read;
         die "bayes: dump_db_toks received no results\n";
       } elsif ($r_nonce ne $nonce) {
         # redis protocol error?
-        $self->disconnect_read;
+        $self->_disconnect_read;
         die sprintf("bayes: dump_db_toks nonce mismatch, ".
                     "expected %s, got %s\n",
                     $nonce, defined $r_nonce ? $r_nonce : 'UNDEF');
       } elsif (@items != @tokens) {
-        $self->disconnect_read;
+        $self->_disconnect_read;
         die sprintf("bayes: dump_db_toks got %d entries, expected %d\n",
                        scalar @items, scalar @tokens);
       }
@@ -1502,7 +1502,7 @@ sub backup_database {
   print "v\t$vars[2]\tnum_nonspam\n";
 
   # let's get past this terrible command as fast as possible
-  my $keys = $r->call('KEYS', $self->key('w:*'));
+  my $keys = $r->call('KEYS', $self->_key('w:*'));
   dbg("bayes: fetched %d token keys", scalar @$keys);
 
   # process tokens in chunks of 1000
@@ -1533,16 +1533,16 @@ sub backup_database {
       my @items = split(' ', $result);
       my $r_nonce = pop(@items);
       if (!defined $r_nonce) {
-        $self->disconnect_read;
+        $self->_disconnect_read;
         die "bayes: backup_database received no results\n";
       } elsif ($r_nonce ne $nonce) {
         # redis protocol error?
-        $self->disconnect_read;
+        $self->_disconnect_read;
         die sprintf("bayes: backup_database nonce mismatch, ".
                     "expected %s, got %s\n",
                     $nonce, defined $r_nonce ? $r_nonce : 'UNDEF');
       } elsif (@items != @tokens) {
-        $self->disconnect_read;
+        $self->_disconnect_read;
         die sprintf("bayes: backup_database got %d entries, expected %d\n",
                        scalar @items, scalar @tokens);
       }
@@ -1558,7 +1558,7 @@ sub backup_database {
   }
   dbg("bayes: written token keys");
 
-  $keys = $r->call('KEYS', $self->key('s:*'));
+  $keys = $r->call('KEYS', $self->_key('s:*'));
   dbg("bayes: fetched %d seen keys", scalar @$keys);
 
   for (my $i = 0; $i <= $#$keys; $i += 1000) {
@@ -1662,7 +1662,7 @@ sub restore_database {
         # turn unpacked binary token back into binary value
         $token = pack("H*",$token);
       }
-      my $key = $self->key('w:'.$token);
+      my $key = $self->_key('w:'.$token);
       $r->b_call('HINCRBY', $key, 's', int $spam_count) if $spam_count > 0;
       $r->b_call('HINCRBY', $key, 'h', int $ham_count)  if $ham_count  > 0;
 
@@ -1694,12 +1694,12 @@ sub restore_database {
       }
 
       if (!$seen_ttl) {
-        $r->b_call('SET', $self->key("s:$msgid"), $flag);
+        $r->b_call('SET', $self->_key("s:$msgid"), $flag);
       } else {
         # by introducing some randomness (ttl times a factor of 0.7 .. 1.7),
         # we avoid auto-expiration of many 'seen' entries all at once,
         # introducing an unnecessary load spike on a redis server
-        $r->b_call('SETEX', $self->key("s:$msgid"), int($seen_ttl * (rand()+0.7)), $flag);
+        $r->b_call('SETEX', $self->_key("s:$msgid"), int($seen_ttl * (rand()+0.7)), $flag);
       }
 
       # collect response every now and then, ignoring results
